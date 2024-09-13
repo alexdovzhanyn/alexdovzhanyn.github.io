@@ -3,16 +3,16 @@
 #
 
 # Name of your site (displayed in the header)
-name: Alex Dovzhanyn
+name: The Stack Frame
 
 # Name of the author
 author: Alex Dovzhanyn
 
 # Short bio or description (displayed in the header)
-description: An elegant Jekyll theme
+description: Unpacking code, one frame at a time.
 
 # URL of your avatar or profile pic (you could use your GitHub profile pic)
-avatar: /images/reverie.png
+avatar: /images/thestackframe.png
 
 #
 # Flags below are optional
@@ -28,7 +28,7 @@ footer-links:
   instagram:
   linkedin: alex-dovzhanyn 
   pinterest:
-  rss: rss
+  rss: 
   twitter: alexdovzhanyn
   stackoverflow: 
   youtube: # channel/<your_long_string> or user/<user-name>
@@ -48,8 +48,8 @@ google_analytics:
 
 # Your website URL (e.g. http://amitmerchant1990.github.io or http://www.amitmerchant.com)
 # Used for Sitemap.xml and your RSS feed
-url: http://www.amitmerchant.com/reverie
-enforce_ssl: https://www.amitmerchant.com/reverie
+url: https://www.thestackframe.dev
+enforce_ssl: https://www.thestackframe.dev
 
 # If you're hosting your site at a Project repository on GitHub pages
 # (http://yourusername.github.io/repository-name)
