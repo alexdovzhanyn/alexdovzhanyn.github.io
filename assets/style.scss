@@ -417,6 +417,14 @@ pre {
   border-radius: 8px;
 }
 
+.language-plaintext {
+  background-color: #44475A !important;
+  color: #FF79C6 !important;
+  padding-left: 4px;
+  padding-right: 4px;
+  border-radius: 4px;
+}
+
 // Carbon ads styling and remaining rules...
 
 @import "darcula";

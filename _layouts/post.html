@@ -6,7 +6,10 @@ layout: default
   <h1>{{ page.title }}</h1>
 
   <div>
-    <p class="author_title">{{site.author}}  ·  {{ page.date | date: "%B %e, %Y" }}</p>
+    <div style="display: flex; align-items: center;">
+      <img src="{{site.baseurl}}/images/alex.jpg" alt="Alex Dovzhanyn" style="width: 50px; height: 50px; border-radius: 50%; margin-right: 15px;">
+      <p class="author_title">{{site.author}}  ·  {{ page.date | date: "%B %e, %Y" }}</p>
+    </div>
     {% if page.last_modified_at %}
     <p class="author_title" datetime="{{ page.last_modified_at | date_to_xmlschema }}">(Updated: {{ page.last_modified_at | date: "%b %-d, %Y" }})</p>
     {% endif %}
