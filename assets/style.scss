@@ -412,6 +412,11 @@ footer {
   color: #282a36; // Dracula background
 }
 
+pre {
+  border: 1px solid #4b4b4b;
+  border-radius: 8px;
+}
+
 // Carbon ads styling and remaining rules...
 
 @import "darcula";
