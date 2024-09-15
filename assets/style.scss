@@ -415,6 +415,32 @@ footer {
 pre {
   border: 1px solid #4b4b4b;
   border-radius: 8px;
+
+  &::-webkit-scrollbar {
+    width: 12px; // Customize scrollbar width
+  }
+
+  &::-webkit-scrollbar-track {
+    background-color: #282a36; // Dracula background for scrollbar track
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background-color: #6272a4; // Dracula purple for scrollbar thumb
+    border-radius: 6px;
+    border: 2px solid #282a36; // Adds some spacing between track and thumb
+  }
+
+  &::-webkit-scrollbar-thumb:hover {
+    background-color: #50fa7b; // Hover effect using Dracula green
+  }
+
+  &::-webkit-scrollbar-thumb:active {
+    background-color: #ff79c6; // Active effect using Dracula pink
+  }
+
+  &::-webkit-scrollbar-corner {
+    background-color: #282a36; // For when both vertical and horizontal scrollbars appear
+  }
 }
 
 .language-plaintext {
