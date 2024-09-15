@@ -205,3 +205,322 @@ than that. When we call `$createMultiplier`, we want it to store the `$factor` s
 
 We need some way of tracking which arguments have already been passed in, and how many we are still expecting to be passed in, before we can go ahead and execute the function
 -- so that we can place everything onto the stack before the `$call_indirect`.
+
+We can use a sort of partial function application approach to call the lambda-lifted function. As its parent function gets called and arguments get passed in, we know we 
+will need those parameters, in the same order, to call our lifted function. What we can do is have the parent function "partially apply" arguments to the lifted function
+during its execution. There are a few things we want to store in memory so that we can correctly implement the partial application flow:
+
+- The table index of the function that this partial application is for.
+- The remaining arity (number of arguments the function still requires) of the function.
+- Each argument that has been applied to the function so far.
+
+What we can do is provision a custom data structure, which we'll call a "closure", to store the information we need. This approach will need some sort of garbage collection
+to make sure we actually have space in memory to store things, but that's out of the scope of this article so we won't cover that here.
+
+Our closure would be laid out in memory like so:
+
+<img src="/images/webassembly-closures/closure_memory_layout.svg" style="width: 75%;" />
+
+We'll store the closure as contiguous chunk of bytes into memory. Here we'll store an `i32` for the function pointer, which will use 4 bytes. In the next available
+memory address we'll store the remaining arity of the function -- this is how many arguments we still need to be passed in before the function can be executed. We'll
+use an `i32` for this as well, so that'll take another 4 bytes. 
+
+The next section of the closure is going to be all of the addresses of the arguments we want to store. Each argument address will be an `i32` as well, so they'll each take
+up 4 bytes.
+
+Now, instead of returning the function pointer, we can return a pointer to the closure.
+
+Here's how it works:
+
+When we come across a function invocation of a function that has been lambda-lifted, we provision a closure in memory for it. The function index will just be the index of the
+lifted function in the function table. The arity will start at the number of parameters that function expects. Immediately, we'll add the parameters of the parent function
+into the closure. We need to store the argument somewhere in memory, and then store an `i32` pointing to that memory address into the closure. 
+
+In order to save some space, we can insert the arguments backwards in the closure, meaning the first argument address would get stored in the last argument memory address position
+in the closure. We can easily calculate which position an argument should go into, by doing using the formula: `closure_addr + 8 + (rem_arity * 4)`. Whenever we add an argument
+address to the closure, we decrement the remaining arity by one. Once remaining arity hits 0, we know we can execute the function!
+
+## Putting it all together
+
+Let's walk through what we just described within the context of the example from above.
+
+```typescript
+main<Function<Number>> = () -> {
+  multiplyBy10<Function<Number, Number>> = createMultiplier(1)
+
+  multiplyBy10(5)
+}
+
+createMultiplier<Function<Number, Function<Number, Number>>> = (factor<Number>) -> {
+    scalar<Number> = 10
+
+    // The last expression of a block is implicitly returned, so no need
+    // for a return statement
+    (x<Number>) -> x * factor * scalar
+}
+```
+
+gets translated into:
+
+```clojure
+(module
+ (type $0 (func (param i64 i64) (result i64)))
+ (type $1 (func (param i64) (result i32)))
+ (type $2 (func (param i32 i32)))
+ (type $3 (func (result i64)))
+ (memory $0 1 10)
+ (table $ThetaFunctionRefs 3 3 funcref)
+ (elem $0 (i32.const 0) $main $createMultiplier $e53488d)
+ (func $Theta.Function.populateClosure (param $closure_mem_addr i32) (param $param_addr i32)
+  (local $arity i32)
+  (local.set $arity
+   (i32.load
+    (i32.add
+     (local.get $closure_mem_addr)
+     (i32.const 4)
+    )
+   )
+  )
+  (i32.store offset=4
+   (local.get $closure_mem_addr)
+   (i32.sub
+    (local.get $arity)
+    (i32.const 1)
+   )
+  )
+  (i32.store offset=4
+   (i32.add
+    (local.get $closure_mem_addr)
+    (i32.mul
+     (local.get $arity)
+     (i32.const 4)
+    )
+   )
+   (local.get $param_addr)
+  )
+ )
+ (func $main (result i64)
+  (local $multiplyBy10 i32)
+  (local.set $multiplyBy10
+   (call_indirect (type $1)
+    (i64.const 1)
+    (i32.const 1)
+   )
+  )
+  (i64.store
+   (i32.const 0)
+   (i64.const 5)
+  )
+  (call $Theta.Function.populateClosure
+   (local.get $multiplyBy10)
+   (i32.const 0)
+  )
+  (if (result i64)
+   (i32.eqz
+    (i32.load offset=4
+     (local.get $multiplyBy10)
+    )
+   )
+   (then
+    (call_indirect (type $0)
+     (i64.load
+      (i32.load offset=12
+       (local.get $multiplyBy10)
+      )
+     )
+     (i64.load
+      (i32.load offset=8
+       (local.get $multiplyBy10)
+      )
+     )
+     (i32.load
+      (local.get $multiplyBy10)
+     )
+    )
+   )
+   (else
+    (i64.const -1)
+   )
+  )
+ )
+ (func $e53488d (param $factor i64) (param $x i64) (result i64)
+  (i64.mul
+   (i64.mul
+    (local.get $x)
+    (local.get $factor)
+   )
+   (i64.const 10)
+  )
+ )
+ (func $createMultiplier (param $factor i64) (result i32)
+  (local $scalar i32)
+  (i64.store
+   (i32.const 8)
+   (local.get $factor)
+  )
+  (i32.store
+   (i32.const 16)
+   (i32.const 2)
+  )
+  (i32.store offset=4
+   (i32.const 16)
+   (i32.const 1)
+  )
+  (i32.store offset=12
+   (i32.const 16)
+   (i32.const 8)
+  )
+  (i32.const 16)
+ )
+)
+```
+
+It looks like a lot, so lets step through it. When we call `$main`, we store the result of `call_indirect` into
+a local called `$multiplyBy10`:
+
+```clojure
+(local.set $multiplyBy10
+ (call_indirect (type $1)
+  (i64.const 1)
+  (i32.const 1)
+ )
+)
+```
+
+The call_indirect instruction takes in any arguments that the function needs, and then calls the function at the specified
+function index. In this case, we're passing in 1 as the argument, and calling the function at index 1 in the function table.
+That function is our `$createMultiplier` function. Lets jump there now.
+
+```clojure
+ (func $createMultiplier (param $factor i64) (result i32)
+  (local $scalar i32)
+  (i64.store
+   (i32.const 8)
+   (local.get $factor)
+  )
+  (i32.store
+   (i32.const 16)
+   (i32.const 2)
+  )
+  (i32.store offset=4
+   (i32.const 16)
+   (i32.const 1)
+  )
+  (i32.store offset=12
+   (i32.const 16)
+   (i32.const 8)
+  )
+  (i32.const 16)
+ )
+```
+
+When this function gets invoked, it immediately stores the passed `$factor` into memory -- in this case at address 8. Next,
+it creates a closure, where we see the `i32.store` calls. The closure is being stored at address 16 in memory.
+
+First, it stores a 2 at address 16. This is the function index of the function we want to call (`$e53488d`). Then, it stores the 
+remaining arity as 1, also at address 16, but with an offset of 4, so this will insert into memory address 20. This is a bit 
+of a shortcut, because technically `$e53488d` has an arity of 2, but the compiler knows that we're about to store an argument,
+so rather than storing an arity of 2 and then immediately decrementing it to 1, we can just store 1 right away.
+
+As expected, we next store the address of the argument that we want to pass into the closure. Notice that this is being stored
+at address 16, with an offset of 12, which gives us the effective address of 28. Also notice that we skipped address 24. We're
+leaving this empty for the second parameter.
+
+The `$createMultiplier` function then just returns 16, which is the memory address at which the closure was stored. Now let's go 
+back to where we called the function in the first place.
+
+```clojure
+ (func $main (result i64)
+  (local $multiplyBy10 i32)
+  (local.set $multiplyBy10
+   (call_indirect (type $1)
+    (i64.const 1)
+    (i32.const 1)
+   )
+  ) ;; <- We are here
+  (i64.store
+   (i32.const 0)
+   (i64.const 5)
+  )
+  (call $Theta.Function.populateClosure
+   (local.get $multiplyBy10)
+   (i32.const 0)
+  )
+  (if (result i64)
+   (i32.eqz
+    (i32.load offset=4
+     (local.get $multiplyBy10)
+    )
+   )
+   (then
+    (call_indirect (type $0)
+     (i64.load
+      (i32.load offset=12
+       (local.get $multiplyBy10)
+      )
+     )
+     (i64.load
+      (i32.load offset=8
+       (local.get $multiplyBy10)
+      )
+     )
+     (i32.load
+      (local.get $multiplyBy10)
+     )
+    )
+   )
+   (else
+    (i64.const -1)
+   )
+  )
+ )
+```
+
+Okay, now the closure pointer is stored into the local `$multiplyBy10`. The next thing we do is store the 5 into memory (remember, 
+our source code immediately calls the returned function with an argument of 5). Now that our argument is in memory, we can proceed
+to place its address into the closure as well. I've put together a `$populateClosure` helper function, which just takes in a
+`closure_mem_addr` and a `param_addr`, and inserts the `param_addr` at the appropriate place in the closure, and also decrements
+the arity. We don't want to have to rewrite that logic every time.
+
+Next, we check if the arity of our closure equals zero:
+
+```clojure
+  (if (result i64)
+   (i32.eqz
+    (i32.load offset=4 ;; Offset 4 is where the arity is in the closure
+     (local.get $multiplyBy10)
+    )
+   )
+```
+
+if it does, we `call_indirect` the function at the closure pointer address:
+
+```clojure
+   (then
+    (call_indirect (type $0) 
+     (i64.load
+      (i32.load offset=12 ;; Load the first argument. This will give us the address of where the argument was stored
+       (local.get $multiplyBy10)
+      )
+     )
+     (i64.load
+      (i32.load offset=8
+       (local.get $multiplyBy10)
+      )
+     )
+     (i32.load
+      (local.get $multiplyBy10)
+     )
+    )
+   )
+```
+
+Here, we use `i32.load` to load the argument address from the closure. Remember that we stored the arguments backwards,
+so the last argument in the closure is really the first argument to the parameter. Once we load the address, we need
+to read the actual number from that address using `i64.load`, which will give us 1 in the case of the first argument.
+
+Finally, we use `local.get $multiplyBy10` to get the closure pointer, and then read at that address without an offset,
+to get the function index for that closure. That gets passed into the `call_indirect` as well.
+
+This will call our function with the intended arguments, and now we have first-class functions and closures implemented
+in WebAssembly!
