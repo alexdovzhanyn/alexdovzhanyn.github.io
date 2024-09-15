@@ -16,6 +16,11 @@ natively support high-level features such as closures and first class functions 
 Let's take a look at an example of a simple Theta code snippet:
 
 ```typescript
+// Note: In Theta, the function signatures are represented as Function<ArgType, ReturnType>. This is
+// specific to Theta's type system and might differ from the typical notation used in other
+// functional languages. For instance, Function<Number, Number> means a function that takes a
+// Number and returns a Number.
+
 main<Function<Number>> = () -> {
     multiplyBy10(5)
 }
@@ -45,6 +50,10 @@ This is pretty simple to convert to WebAssembly directly:
     )
 )
 ```
+
+In this example, we're using `i64` for simplicity and flexibility. WebAssembly supports both `i32` and `i64`, and depending
+on your use case, you might choose one over the other. Since Theta supports larger integer types, we're using `i64` here, but in
+practice, you could adjust this to `i32` if your application deals with smaller numbers
 
 Since these two functions are each independent functions which share no state between them, we don't need to do anything fancy
 to get the function call to `multiplyBy10` working -- simply using the `call` instruction works. Now, what if we want to have many
@@ -109,6 +118,9 @@ e53488d<Function<Number, Number, Number>> = (factor<Number>, x<Number>) -> {
     x * scalar * factor
 }
 ```
+
+During lambda lifting, all variables in the outer scope that the inner function relies on, like `scalar` in this case, are pulled up and passed explicitly
+to the generated top-level function. This ensures that all state needed by the generated function is available, even though the original context is no longer present.
 
 Obviously, this still won't work in the context of WebAssembly, but we're closer to what we need. Instead of having an anonymous function defined within our function,
 we captured all of the elements from the scope of the parent function that we need, and made a new, globally-defined function in the module called `e53488d`. Realistically,
@@ -206,16 +218,22 @@ than that. When we call `$createMultiplier`, we want it to store the `$factor` s
 We need some way of tracking which arguments have already been passed in, and how many we are still expecting to be passed in, before we can go ahead and execute the function
 -- so that we can place everything onto the stack before the `$call_indirect`.
 
-We can use a sort of partial function application approach to call the lambda-lifted function. As its parent function gets called and arguments get passed in, we know we 
-will need those parameters, in the same order, to call our lifted function. What we can do is have the parent function "partially apply" arguments to the lifted function
-during its execution. There are a few things we want to store in memory so that we can correctly implement the partial application flow:
+We can use a sort of partial function application approach to call the lambda-lifted function. Partial application is a functional programming concept where some arguments of
+a function are fixed, and a new function is returned that takes the remaining arguments. In our case, we store the applied arguments in memory and track how many more are
+needed before the function can be fully executed. This allows us to simulate partial application behavior in WebAssembly.
+
+As its parent function gets called and arguments get passed in, we know we will need those parameters, in the same order, to call our lifted function. What we can do is have
+the parent function "partially apply" arguments to the lifted function during its execution. There are a few things we want to store in memory so that we can correctly
+implement the partial application flow:
 
 - The table index of the function that this partial application is for.
 - The remaining arity (number of arguments the function still requires) of the function.
 - Each argument that has been applied to the function so far.
 
-What we can do is provision a custom data structure, which we'll call a "closure", to store the information we need. This approach will need some sort of garbage collection
-to make sure we actually have space in memory to store things, but that's out of the scope of this article so we won't cover that here.
+What we can do is provision a custom data structure, which we'll call a "closure", to store the information we need. This approach will need some sort of garbage collection.
+Although we won’t touch on garbage collection in this article, it's important to note that WebAssembly lacks built-in garbage collection (outside of proposed extensions). 
+This means any dynamically allocated data structures, such as closures, will require manual memory management using techniques like reference counting or manual
+deallocation to avoid memory leaks.
 
 Our closure would be laid out in memory like so:
 
